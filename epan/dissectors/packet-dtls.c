@@ -94,6 +94,7 @@ static gint hf_dtls_record_epoch                = -1;
 static gint hf_dtls_record_sequence_number      = -1;
 static gint hf_dtls_record_length               = -1;
 static gint hf_dtls_record_appdata              = -1;
+static gint hf_dtls_record_changeinterface      = -1;
 static gint hf_dtls_change_cipher_spec          = -1;
 static gint hf_dtls_alert_message               = -1;
 static gint hf_dtls_alert_message_level         = -1;
@@ -873,6 +874,76 @@ dissect_dtls_record(tvbuff_t *tvb, packet_info *pinfo,
       }
       break;
     }
+  case SSL_ID_CHG_INTERFACE:
+    if (ssl)
+      decrypt_dtls_record(tvb, pinfo, offset,
+                          record_length, content_type, ssl, TRUE);
+
+    col_append_str(pinfo->cinfo, COL_INFO, "Change Interface Message");
+
+    /* we need dissector information when the selected packet is shown.
+     * ssl session pointer is NULL at that time, so we can't access
+     * info cached there*/
+    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
+    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
+
+    proto_item_set_text(dtls_record_tree,
+                        "%s Record Layer: %s Protocol: %s",
+                        val_to_str_const(session->version, ssl_version_short_names, "SSL"),
+                        val_to_str_const(content_type, ssl_31_content_type, "Change Interface Message"),
+                        association?association->info:"Change Interface Message");
+
+    /* show decrypted data info, if available */
+    appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
+    if (appl_data && (appl_data->plain_data.data_len > 0))
+      {
+        tvbuff_t *next_tvb;
+        gboolean  dissected;
+        /* try to dissect decrypted data*/
+        ssl_debug_printf("dissect_dtls_record decrypted len %d\n",
+                         appl_data->plain_data.data_len);
+
+        /* create a new TVB structure for desegmented data */
+        next_tvb = tvb_new_child_real_data(tvb,
+                                           appl_data->plain_data.data,
+                                           appl_data->plain_data.data_len,
+                                           appl_data->plain_data.data_len);
+
+        add_new_data_source(pinfo, next_tvb, "Decrypted DTLS data");
+
+        /* find out a dissector using server port*/
+        if (association && association->handle) {
+          ssl_debug_printf("dissect_dtls_record found association %p\n", (void *)association);
+          ssl_print_data("decrypted app data",appl_data->plain_data.data, appl_data->plain_data.data_len);
+
+          if (have_tap_listener(exported_pdu_tap)) {
+            exp_pdu_data_t *exp_pdu_data;
+            guint8 tags = EXP_PDU_TAG_IP_SRC_BIT | EXP_PDU_TAG_IP_DST_BIT | EXP_PDU_TAG_SRC_PORT_BIT |
+                          EXP_PDU_TAG_DST_PORT_BIT | EXP_PDU_TAG_ORIG_FNO_BIT;
+
+            exp_pdu_data = load_export_pdu_tags(pinfo, dissector_handle_get_dissector_name(association->handle), -1,
+                                                &tags, 1);
+
+            exp_pdu_data->tvb_captured_length = tvb_captured_length(next_tvb);
+            exp_pdu_data->tvb_reported_length = tvb_reported_length(next_tvb);
+            exp_pdu_data->pdu_tvb = next_tvb;
+
+            tap_queue_packet(exported_pdu_tap, pinfo, exp_pdu_data);
+          }
+
+          dissected = call_dissector_only(association->handle, next_tvb, pinfo, top_tree, NULL);
+        }
+        else {
+          /* try heuristic subdissectors */
+          dissected = dissector_try_heuristic(heur_subdissector_list, next_tvb, pinfo, top_tree, &hdtbl_entry, NULL);
+        }
+        if (dissected)
+          break;
+      }
+
+    proto_tree_add_item(dtls_record_tree, hf_dtls_record_appdata, tvb,
+                        offset, record_length, ENC_NA);
+    break;
   case SSL_ID_APP_DATA:
     if (ssl)
       decrypt_dtls_record(tvb, pinfo, offset,
@@ -1697,6 +1768,11 @@ proto_register_dtls(void)
       { "Encrypted Application Data", "dtls.app_data",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         "Payload is encrypted application data", HFILL }
+    },
+    { &hf_dtls_record_changeinterface,
+      { "Encrypted Change Interface", "dtls.change_interface",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Payload is encrypted change interface message", HFILL }
     },
     { &hf_dtls_change_cipher_spec,
       { "Change Cipher Spec Message", "dtls.change_cipher_spec",

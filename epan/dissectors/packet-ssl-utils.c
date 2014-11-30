@@ -4512,6 +4512,7 @@ ssl_is_valid_content_type(guint8 type)
     case SSL_ID_HANDSHAKE:
     case SSL_ID_APP_DATA:
     case SSL_ID_HEARTBEAT:
+    case SSL_ID_CHG_INTERFACE:
         return TRUE;
     }
     return FALSE;
