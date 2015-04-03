@@ -1615,6 +1615,10 @@ dissect_ssl3_record(tvbuff_t *tvb, packet_info *pinfo,
         break;
     }
     case SSL_ID_CHG_INTERFACE:
+    case SSL_ID_FEEDBACK:
+    case SSL_ID_FEEDBACKACK:
+    case SSL_ID_WANTCONNECT:
+    case SSL_ID_WANTCONNECTACK:
     case SSL_ID_APP_DATA:
         if (ssl){
             decrypt_ssl3_record(tvb, pinfo, offset,

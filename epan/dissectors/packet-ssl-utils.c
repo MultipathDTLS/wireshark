@@ -4513,6 +4513,10 @@ ssl_is_valid_content_type(guint8 type)
     case SSL_ID_APP_DATA:
     case SSL_ID_HEARTBEAT:
     case SSL_ID_CHG_INTERFACE:
+    case SSL_ID_FEEDBACK:
+    case SSL_ID_FEEDBACKACK:
+    case SSL_ID_WANTCONNECT:
+    case SSL_ID_WANTCONNECTACK:
         return TRUE;
     }
     return FALSE;

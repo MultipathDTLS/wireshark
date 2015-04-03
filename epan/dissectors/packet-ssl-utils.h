@@ -76,7 +76,11 @@ typedef enum {
     SSL_ID_HANDSHAKE               = 0x16,
     SSL_ID_APP_DATA                = 0x17,
     SSL_ID_HEARTBEAT               = 0x18,
-    SSL_ID_CHG_INTERFACE		   = 0x2A
+    SSL_ID_CHG_INTERFACE           = 0x2A,
+    SSL_ID_FEEDBACK                = 0x2B,
+    SSL_ID_FEEDBACKACK             = 0x2C,
+    SSL_ID_WANTCONNECT             = 0x2D,
+    SSL_ID_WANTCONNECTACK          = 0x2E
 } ContentType;
 
 typedef enum {
