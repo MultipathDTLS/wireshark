@@ -94,11 +94,29 @@ static gint hf_dtls_record_epoch                = -1;
 static gint hf_dtls_record_sequence_number      = -1;
 static gint hf_dtls_record_length               = -1;
 static gint hf_dtls_record_appdata              = -1;
-static gint hf_dtls_record_changeinterface      = -1;
-static gint hf_dtls_record_feedback             = -1;
-static gint hf_dtls_record_feedback_ack         = -1;
-static gint hf_dtls_record_wantconnect          = -1;
-static gint hf_dtls_record_wantconnect_ack      = -1;
+static gint hf_mpdtls_record_changeinterface    = -1;
+static gint hf_mpdtls_record_changeinterface_reply = -1;
+static gint hf_mpdtls_record_changeinterface_seq = -1;
+static gint hf_mpdtls_record_changeinterface_addr_len = -1;
+static gint hf_mpdtls_record_changeinterface_addr_list = -1;
+static gint hf_mpdtls_record_changeinterface_addr_list_addr = -1;
+static gint hf_mpdtls_record_changeinterface_addr_list_port = -1;
+static gint hf_mpdtls_record_wantconnect        = -1;
+static gint hf_mpdtls_record_wantconnect_src    = -1;
+static gint hf_mpdtls_record_wantconnect_src_port = -1;
+static gint hf_mpdtls_record_wantconnect_dst    = -1;
+static gint hf_mpdtls_record_wantconnect_dst_port = -1;
+static gint hf_mpdtls_record_wantconnect_flags_refuse = -1;
+static gint hf_mpdtls_record_wantconnect_ack    = -1;
+static gint hf_mpdtls_record_wantconnect_ack_seq = -1;
+static gint hf_mpdtls_record_wantconnect_ack_flags_refuse = -1;
+static gint hf_mpdtls_record_feedback           = -1;
+static gint hf_mpdtls_record_feedback_rcv_cnt   = -1;
+static gint hf_mpdtls_record_feedback_min       = -1;
+static gint hf_mpdtls_record_feedback_max       = -1;
+static gint hf_mpdtls_record_feedback_avg_fd    = -1;
+static gint hf_mpdtls_record_feedback_ack       = -1;
+static gint hf_mpdtls_record_feedback_ack_seq   = -1;
 static gint hf_dtls_change_cipher_spec          = -1;
 static gint hf_dtls_alert_message               = -1;
 static gint hf_dtls_alert_message_level         = -1;
@@ -137,6 +155,12 @@ static gint ett_dtls_alert             = -1;
 static gint ett_dtls_handshake         = -1;
 static gint ett_dtls_heartbeat         = -1;
 static gint ett_dtls_certs             = -1;
+static gint ett_mpdtls_changeinterface = -1;
+static gint ett_mpdtls_changeinterface_addrs = -1;
+static gint ett_mpdtls_feedback        = -1;
+static gint ett_mpdtls_feedbackack     = -1;
+static gint ett_mpdtls_wantconnect     = -1;
+static gint ett_mpdtls_wantconnectack  = -1;
 
 static gint ett_dtls_fragment          = -1;
 static gint ett_dtls_fragments         = -1;
@@ -879,111 +903,299 @@ dissect_dtls_record(tvbuff_t *tvb, packet_info *pinfo,
       break;
     }
   case SSL_ID_CHG_INTERFACE:
-  case SSL_ID_FEEDBACK:
-  case SSL_ID_FEEDBACKACK:
-  case SSL_ID_WANTCONNECT:
-  case SSL_ID_WANTCONNECTACK:
-    {
-      char name[40];
-      switch ((ContentType) content_type) {
-      case SSL_ID_CHG_INTERFACE:
-        {
-          sprintf(name, "Change Interface Message");
-          break;
+    if (ssl)
+      decrypt_dtls_record(tvb, pinfo, offset,
+                          record_length, content_type, ssl, TRUE);
+
+    col_append_str(pinfo->cinfo, COL_INFO, "Change Interface");
+
+    /* we need dissector information when the selected packet is shown.
+     * ssl session pointer is NULL at that time, so we can't access
+     * info cached there*/
+    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
+    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
+
+    proto_item_set_text(dtls_record_tree,
+                        "%s Record Layer: %s Protocol: %s",
+                        val_to_str_const(session->version, ssl_version_short_names, "SSL"),
+                        val_to_str_const(content_type, ssl_31_content_type, "Change Interface"),
+                        association?association->info:"Change Interface");
+
+    /* show decrypted data info, if available */
+    appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
+    if (appl_data && (appl_data->plain_data.data_len > 0))
+      {
+        tvbuff_t *next_tvb;
+        proto_tree* ci_item;
+        proto_tree* ci_tree;
+        proto_tree* list_addr_item;
+        proto_tree* list_addr_tree;
+        guint8 reply, listlen, i;
+        //guint64 ack_seq_num;
+
+        /* try to dissect decrypted data*/
+        ssl_debug_printf("dissect_dtls_record decrypted len %d\n",
+                         appl_data->plain_data.data_len);
+
+        /* create a new TVB structure for desegmented data */
+        next_tvb = tvb_new_child_real_data(tvb,
+                                           appl_data->plain_data.data,
+                                           appl_data->plain_data.data_len,
+                                           appl_data->plain_data.data_len);
+        add_new_data_source(pinfo, next_tvb, "Decrypted DTLS payload");
+
+        reply = tvb_get_guint8(next_tvb, 0);
+
+        ci_item = proto_tree_add_item(dtls_record_tree, hf_mpdtls_record_changeinterface, next_tvb, 
+                                      0, appl_data->plain_data.data_len, ENC_NA);
+        ci_tree = proto_item_add_subtree(ci_item, ett_mpdtls_changeinterface);
+
+        proto_tree_add_item(ci_tree, hf_mpdtls_record_changeinterface_reply, next_tvb, 0, 1, ENC_BIG_ENDIAN);
+        
+        if (reply == 0 && 0) { // There is a bug in the library implementation at this time. Field is never sent
+          //ack_seq_num = tvb_get_ntoh48(next_tvb, 1);
+          //proto_tree_add_uint64(ci_tree, hf_mpdtls_record_changeinterface_seq, next_tvb, off, 6, ack_seq_num);
+          //off += 8;
         }
-      case SSL_ID_FEEDBACK:
+
+        listlen = tvb_get_guint8(next_tvb, 1);
+
+        proto_tree_add_uint(ci_tree, hf_mpdtls_record_changeinterface_addr_len, next_tvb, 1, 1, listlen);
+
+        list_addr_item = proto_tree_add_item(ci_tree, hf_mpdtls_record_changeinterface_addr_list, next_tvb,
+                                           2, listlen * 18, ENC_BIG_ENDIAN);
+
+        list_addr_tree = proto_item_add_subtree(list_addr_item, ett_mpdtls_changeinterface_addrs);
+
+        for (i = 0; i < listlen; i++)
         {
-          sprintf(name, "Feedback");
-          break;
+          proto_tree_add_item(list_addr_tree, hf_mpdtls_record_changeinterface_addr_list_addr, next_tvb, 2 + i * 18, 16, ENC_BIG_ENDIAN);
+          proto_tree_add_item(list_addr_tree, hf_mpdtls_record_changeinterface_addr_list_port, next_tvb, 18 + i * 18, 2, ENC_BIG_ENDIAN);
         }
-      case SSL_ID_FEEDBACKACK:
-        {
-          sprintf(name, "Feedback Ack");
-          break;
-        }
-      case SSL_ID_WANTCONNECT:
-        {
-          sprintf(name, "WantConnect");
-          break;
-        }
-      case SSL_ID_WANTCONNECTACK:
-        {
-          sprintf(name, "WantConnect Ack");
-          break;
-        }
-      default:
-          break;
+        
+      } else {
+        proto_tree_add_item(dtls_record_tree, hf_mpdtls_record_wantconnect, tvb,
+                            offset, record_length, ENC_NA);
       }
-      if (ssl)
-        decrypt_dtls_record(tvb, pinfo, offset,
-                            record_length, content_type, ssl, TRUE);
+    break;
+  case SSL_ID_WANTCONNECT:
+    if (ssl)
+      decrypt_dtls_record(tvb, pinfo, offset,
+                          record_length, content_type, ssl, TRUE);
 
-      col_append_str(pinfo->cinfo, COL_INFO, name);
+    col_append_str(pinfo->cinfo, COL_INFO, "Want Connect");
 
-      /* we need dissector information when the selected packet is shown.
-       * ssl session pointer is NULL at that time, so we can't access
-       * info cached there*/
-      association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
-      association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
+    /* we need dissector information when the selected packet is shown.
+     * ssl session pointer is NULL at that time, so we can't access
+     * info cached there*/
+    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
+    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
 
-      proto_item_set_text(dtls_record_tree,
-                          "%s Record Layer: %s Protocol: %s",
-                          val_to_str_const(session->version, ssl_version_short_names, "SSL"),
-                          val_to_str_const(content_type, ssl_31_content_type, name),
-                          association?association->info:name);
+    proto_item_set_text(dtls_record_tree,
+                        "%s Record Layer: %s Protocol: %s",
+                        val_to_str_const(session->version, ssl_version_short_names, "SSL"),
+                        val_to_str_const(content_type, ssl_31_content_type, "Want Connect"),
+                        association?association->info:"Want Connect");
 
-      /* show decrypted data info, if available */
-      appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
-      if (appl_data && (appl_data->plain_data.data_len > 0))
-        {
-          tvbuff_t *next_tvb;
-          gboolean  dissected;
-          /* try to dissect decrypted data*/
-          ssl_debug_printf("dissect_dtls_record decrypted len %d\n",
-                           appl_data->plain_data.data_len);
+    /* show decrypted data info, if available */
+    appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
+    if (appl_data && (appl_data->plain_data.data_len > 0))
+      {
+        tvbuff_t *next_tvb;
+        proto_tree* wc_item;
+        proto_tree* wc_tree;
 
-          /* create a new TVB structure for desegmented data */
-          next_tvb = tvb_new_child_real_data(tvb,
-                                             appl_data->plain_data.data,
-                                             appl_data->plain_data.data_len,
-                                             appl_data->plain_data.data_len);
+        /* try to dissect decrypted data*/
+        ssl_debug_printf("dissect_dtls_record decrypted len %d\n",
+                         appl_data->plain_data.data_len);
 
-          add_new_data_source(pinfo, next_tvb, "Decrypted DTLS data");
+        /* create a new TVB structure for desegmented data */
+        next_tvb = tvb_new_child_real_data(tvb,
+                                           appl_data->plain_data.data,
+                                           appl_data->plain_data.data_len,
+                                           appl_data->plain_data.data_len);
+        add_new_data_source(pinfo, next_tvb, "Decrypted DTLS payload");
 
-          /* find out a dissector using server port*/
-          if (association && association->handle) {
-            ssl_debug_printf("dissect_dtls_record found association %p\n", (void *)association);
-            ssl_print_data("decrypted app data",appl_data->plain_data.data, appl_data->plain_data.data_len);
+        wc_item = proto_tree_add_item(dtls_record_tree, hf_mpdtls_record_wantconnect, next_tvb, 
+                                      0, appl_data->plain_data.data_len, ENC_NA);
+        wc_tree = proto_item_add_subtree(wc_item, ett_mpdtls_wantconnect);
 
-            if (have_tap_listener(exported_pdu_tap)) {
-              exp_pdu_data_t *exp_pdu_data;
-              guint8 tags = EXP_PDU_TAG_IP_SRC_BIT | EXP_PDU_TAG_IP_DST_BIT | EXP_PDU_TAG_SRC_PORT_BIT |
-                            EXP_PDU_TAG_DST_PORT_BIT | EXP_PDU_TAG_ORIG_FNO_BIT;
+        proto_tree_add_item(wc_tree, hf_mpdtls_record_wantconnect_src, next_tvb, 0, 16, ENC_BIG_ENDIAN);
+        proto_tree_add_item(wc_tree, hf_mpdtls_record_wantconnect_src_port, next_tvb, 16, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_item(wc_tree, hf_mpdtls_record_wantconnect_dst, next_tvb, 18, 16, ENC_BIG_ENDIAN);
+        proto_tree_add_item(wc_tree, hf_mpdtls_record_wantconnect_dst_port, next_tvb, 34, 2, ENC_BIG_ENDIAN);
 
-              exp_pdu_data = load_export_pdu_tags(pinfo, dissector_handle_get_dissector_name(association->handle), -1,
-                                                  &tags, 1);
+        proto_tree_add_item(wc_tree, hf_mpdtls_record_wantconnect_flags_refuse, next_tvb, 36, 1, ENC_BIG_ENDIAN);
+        
+      } else {
+        proto_tree_add_item(dtls_record_tree, hf_mpdtls_record_wantconnect, tvb,
+                            offset, record_length, ENC_NA);
+      }
+    break;
+  case SSL_ID_WANTCONNECTACK:
+    if (ssl)
+      decrypt_dtls_record(tvb, pinfo, offset,
+                          record_length, content_type, ssl, TRUE);
 
-              exp_pdu_data->tvb_captured_length = tvb_captured_length(next_tvb);
-              exp_pdu_data->tvb_reported_length = tvb_reported_length(next_tvb);
-              exp_pdu_data->pdu_tvb = next_tvb;
+    col_append_str(pinfo->cinfo, COL_INFO, "Want Connect Ack");
 
-              tap_queue_packet(exported_pdu_tap, pinfo, exp_pdu_data);
-            }
+    /* we need dissector information when the selected packet is shown.
+     * ssl session pointer is NULL at that time, so we can't access
+     * info cached there*/
+    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
+    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
 
-            dissected = call_dissector_only(association->handle, next_tvb, pinfo, top_tree, NULL);
-          }
-          else {
-            /* try heuristic subdissectors */
-            dissected = dissector_try_heuristic(heur_subdissector_list, next_tvb, pinfo, top_tree, &hdtbl_entry, NULL);
-          }
-          if (dissected)
-            break;
-        }
+    proto_item_set_text(dtls_record_tree,
+                        "%s Record Layer: %s Protocol: %s",
+                        val_to_str_const(session->version, ssl_version_short_names, "SSL"),
+                        val_to_str_const(content_type, ssl_31_content_type, "Want Connect Ack"),
+                        association?association->info:"Want Connect Ack");
 
-      proto_tree_add_item(dtls_record_tree, hf_dtls_record_appdata, tvb,
-                          offset, record_length, ENC_NA);
-      break;
-    }
+    /* show decrypted data info, if available */
+    appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
+    if (appl_data && (appl_data->plain_data.data_len > 0))
+      {
+        tvbuff_t *next_tvb;
+        proto_tree* wca_item;
+        proto_tree* wca_tree;
+        guint64 ack_seq_num;
+
+        /* try to dissect decrypted data*/
+        ssl_debug_printf("dissect_dtls_record decrypted len %d\n",
+                         appl_data->plain_data.data_len);
+
+        /* create a new TVB structure for desegmented data */
+        next_tvb = tvb_new_child_real_data(tvb,
+                                           appl_data->plain_data.data,
+                                           appl_data->plain_data.data_len,
+                                           appl_data->plain_data.data_len);
+        add_new_data_source(pinfo, next_tvb, "Decrypted DTLS payload");
+
+        ack_seq_num = tvb_get_ntoh48(next_tvb, 0);
+
+        wca_item = proto_tree_add_item(dtls_record_tree, hf_mpdtls_record_wantconnect_ack, next_tvb, 
+                                      0, appl_data->plain_data.data_len, ENC_NA);
+        wca_tree = proto_item_add_subtree(wca_item, ett_mpdtls_wantconnect);
+
+        proto_tree_add_uint64(wca_tree, hf_mpdtls_record_wantconnect_ack_seq, next_tvb, 0, 6, ack_seq_num);
+        proto_tree_add_item(wca_tree, hf_mpdtls_record_wantconnect_ack_flags_refuse, next_tvb, 6, 1, ENC_BIG_ENDIAN);
+        
+      } else {
+        proto_tree_add_item(dtls_record_tree, hf_mpdtls_record_wantconnect_ack, tvb,
+                            offset, record_length, ENC_NA);
+      }
+    break;
+  case SSL_ID_FEEDBACK:
+    if (ssl)
+      decrypt_dtls_record(tvb, pinfo, offset,
+                          record_length, content_type, ssl, TRUE);
+
+    col_append_str(pinfo->cinfo, COL_INFO, "Feedback");
+
+    /* we need dissector information when the selected packet is shown.
+     * ssl session pointer is NULL at that time, so we can't access
+     * info cached there*/
+    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
+    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
+
+    proto_item_set_text(dtls_record_tree,
+                        "%s Record Layer: %s Protocol: %s",
+                        val_to_str_const(session->version, ssl_version_short_names, "SSL"),
+                        val_to_str_const(content_type, ssl_31_content_type, "Feedback"),
+                        association?association->info:"Feedback");
+
+    /* show decrypted data info, if available */
+    appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
+    if (appl_data && (appl_data->plain_data.data_len > 0))
+      {
+        tvbuff_t *next_tvb;
+        proto_tree* fb_item;
+        proto_tree* fb_tree;
+        guint64 min_seq_num;
+        guint64 max_seq_num;
+        guint64 rcv_count;
+        guint64 avg_fw_delay;
+
+        /* try to dissect decrypted data*/
+        ssl_debug_printf("dissect_dtls_record decrypted len %d\n",
+                         appl_data->plain_data.data_len);
+
+        /* create a new TVB structure for desegmented data */
+        next_tvb = tvb_new_child_real_data(tvb,
+                                           appl_data->plain_data.data,
+                                           appl_data->plain_data.data_len,
+                                           appl_data->plain_data.data_len);
+        add_new_data_source(pinfo, next_tvb, "Decrypted DTLS payload");
+
+        rcv_count = tvb_get_ntoh64(next_tvb, 0);
+        min_seq_num = tvb_get_ntoh48(next_tvb, 8);
+        max_seq_num = tvb_get_ntoh48(next_tvb, 14);
+        avg_fw_delay = tvb_get_ntoh64(next_tvb, 20);
+
+        fb_item = proto_tree_add_item(dtls_record_tree, hf_mpdtls_record_feedback, next_tvb, 
+                                      0, appl_data->plain_data.data_len, ENC_NA);
+        fb_tree = proto_item_add_subtree(fb_item, ett_mpdtls_feedback);
+
+        proto_tree_add_uint64(fb_tree, hf_mpdtls_record_feedback_rcv_cnt, next_tvb, 0, 8, rcv_count);
+        proto_tree_add_uint64(fb_tree, hf_mpdtls_record_feedback_min, next_tvb, 8, 6, min_seq_num);
+        proto_tree_add_uint64(fb_tree, hf_mpdtls_record_feedback_max, next_tvb, 14, 6, max_seq_num);
+        proto_tree_add_uint64(fb_tree, hf_mpdtls_record_feedback_avg_fd, next_tvb, 20, 8, avg_fw_delay);
+        
+      } else {
+        proto_tree_add_item(dtls_record_tree, hf_mpdtls_record_feedback, tvb,
+                            offset, record_length, ENC_NA);
+      }
+    break;
+  case SSL_ID_FEEDBACKACK:
+    if (ssl)
+      decrypt_dtls_record(tvb, pinfo, offset,
+                          record_length, content_type, ssl, TRUE);
+
+    col_append_str(pinfo->cinfo, COL_INFO, "Feedback Ack");
+
+    /* we need dissector information when the selected packet is shown.
+     * ssl session pointer is NULL at that time, so we can't access
+     * info cached there*/
+    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
+    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
+
+    proto_item_set_text(dtls_record_tree,
+                        "%s Record Layer: %s Protocol: %s",
+                        val_to_str_const(session->version, ssl_version_short_names, "SSL"),
+                        val_to_str_const(content_type, ssl_31_content_type, "Feedback Ack"),
+                        association?association->info:"Feedback Ack");
+
+    /* show decrypted data info, if available */
+    appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
+    if (appl_data && (appl_data->plain_data.data_len > 0))
+      {
+        tvbuff_t *next_tvb;
+        proto_tree* fba_item;
+        proto_tree* fba_tree;
+        guint64 ack_seq_num;
+
+        /* try to dissect decrypted data*/
+        ssl_debug_printf("dissect_dtls_record decrypted len %d\n",
+                         appl_data->plain_data.data_len);
+
+        /* create a new TVB structure for desegmented data */
+        next_tvb = tvb_new_child_real_data(tvb,
+                                           appl_data->plain_data.data,
+                                           appl_data->plain_data.data_len,
+                                           appl_data->plain_data.data_len);
+        add_new_data_source(pinfo, next_tvb, "Decrypted DTLS payload");
+
+        ack_seq_num = tvb_get_ntoh48(next_tvb, 0);
+        fba_item = proto_tree_add_item(dtls_record_tree, hf_mpdtls_record_feedback_ack, next_tvb, 
+                                       0, appl_data->plain_data.data_len, ENC_NA);
+        fba_tree = proto_item_add_subtree(fba_item, ett_mpdtls_feedbackack);
+        proto_tree_add_uint64(fba_tree, hf_mpdtls_record_feedback_ack_seq, next_tvb, 0, 6, ack_seq_num);
+        
+      } else {
+        proto_tree_add_item(dtls_record_tree, hf_mpdtls_record_feedback_ack, tvb,
+                            offset, record_length, ENC_NA);
+      }
+    break;
   case SSL_ID_APP_DATA:
     if (ssl)
       decrypt_dtls_record(tvb, pinfo, offset,
@@ -1809,30 +2021,120 @@ proto_register_dtls(void)
         FT_BYTES, BASE_NONE, NULL, 0x0,
         "Payload is encrypted application data", HFILL }
     },
-    { &hf_dtls_record_changeinterface,
-      { "Encrypted Change Interface", "dtls.change_interface",
-        FT_BYTES, BASE_NONE, NULL, 0x0,
-        "Payload is encrypted change interface message", HFILL }
+    { &hf_mpdtls_record_changeinterface,
+      { "Change Interface", "dtls.changeinterface",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }
     },
-    { &hf_dtls_record_feedback,
-      { "Encrypted Feedback", "dtls.feedback",
-        FT_BYTES, BASE_NONE, NULL, 0x0,
-        "Payload is encrypted feedback", HFILL }
+    { &hf_mpdtls_record_changeinterface_reply,
+      { "Need Reply", "dtls.changeinterface.reply",
+        FT_BOOLEAN, 8, NULL, 0x01,
+        NULL, HFILL }
     },
-    { &hf_dtls_record_feedback_ack,
-      { "Encrypted Feedback Ack", "dtls.feedback_ack",
-        FT_BYTES, BASE_NONE, NULL, 0x0,
-        "Payload is encrypted feedback ack", HFILL }
+    { &hf_mpdtls_record_changeinterface_seq,
+      { "Acknowledged Sequence Number", "dtls.changeinterface.sequence_number",
+        FT_UINT64, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
     },
-    { &hf_dtls_record_wantconnect,
-      { "Encrypted WantConnect", "dtls.want_connect",
-        FT_BYTES, BASE_NONE, NULL, 0x0,
-        "Payload is encrypted want connect", HFILL }
+    { &hf_mpdtls_record_changeinterface_addr_len,
+      { "Addresses Length", "dtls.changeinterface.addrlen",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
     },
-    { &hf_dtls_record_wantconnect_ack,
-      { "Encrypted WantConnectAck", "dtls.want_connect_ack",
-        FT_BYTES, BASE_NONE, NULL, 0x0,
-        "Payload is encrypted want connect ack", HFILL }
+    { &hf_mpdtls_record_changeinterface_addr_list,
+      { "Addresses List", "dtls.changeinterface.addrlist",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_changeinterface_addr_list_addr,
+      { "Address", "dtls.changeinterface.addrlist.addr",
+        FT_IPv6, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_changeinterface_addr_list_port,
+      { "Port", "dtls.changeinterface.addrlist.port",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_wantconnect,
+      { "Want Connect", "dtls.wantconnect",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_wantconnect_src,
+      { "Source Address", "dtls.wantconnect.src",
+        FT_IPv6, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_wantconnect_src_port,
+      { "Source Port", "dtls.wantconnect.src.port",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_wantconnect_dst,
+      { "Destination Address", "dtls.wantconnect.dst",
+        FT_IPv6, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_wantconnect_dst_port,
+      { "Destination Port", "dtls.wantconnect.dst.port",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_wantconnect_flags_refuse,
+      { "Connection Refused", "dtls.wantconnect.flags.refuse",
+        FT_BOOLEAN, 8, NULL, 0x08,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_wantconnect_ack,
+      { "Want Connect Ack", "dtls.wantconnect_ack",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_wantconnect_ack_seq,
+      { "Acknowledged Sequence Number", "dtls.wantconnect_ack.sequence_number",
+        FT_UINT64, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_wantconnect_ack_flags_refuse,
+      { "Connection Refused", "dtls.wantconnect_ack.flags.refuse",
+        FT_BOOLEAN, 8, NULL, 0x08,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_feedback,
+      { "Feedback", "dtls.feedback",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_feedback_rcv_cnt,
+      { "Received Packet Count", "dtls.feedback.count",
+        FT_UINT64, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_feedback_min,
+      { "Minimum Sequence Number", "dtls.feedback.min",
+        FT_UINT64, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_feedback_max,
+      { "Maximum Sequence Number", "dtls.feedback.max",
+        FT_UINT64, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_feedback_avg_fd,
+      { "Average Forward Delay", "dtls.feedback.average_delay",
+        FT_UINT64, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_feedback_ack,
+      { "Feedback Ack", "dtls.feedback_ack",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }
+    },
+    { &hf_mpdtls_record_feedback_ack_seq,
+      { "Acknowledged Sequence Number", "dtls.feedback_ack.sequence_number",
+        FT_UINT64, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }
     },
     { &hf_dtls_change_cipher_spec,
       { "Change Cipher Spec Message", "dtls.change_cipher_spec",
@@ -1971,6 +2273,12 @@ proto_register_dtls(void)
     &ett_dtls_certs,
     &ett_dtls_fragment,
     &ett_dtls_fragments,
+    &ett_mpdtls_changeinterface,
+    &ett_mpdtls_changeinterface_addrs,
+    &ett_mpdtls_wantconnect,
+    &ett_mpdtls_wantconnectack,
+    &ett_mpdtls_feedback,
+    &ett_mpdtls_feedbackack,
     SSL_COMMON_ETT_LIST(dissect_dtls_hf)
   };
 

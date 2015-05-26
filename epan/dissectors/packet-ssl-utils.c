@@ -439,6 +439,11 @@ const value_string ssl_31_content_type[] = {
     { 22, "Handshake" },
     { 23, "Application Data" },
     { 24, "Heartbeat" },
+    { 42, "Change Interface" },
+    { 43, "Feedback" },
+    { 44, "Feedback Ack" },
+    { 45, "Want Connect" },
+    { 46, "Want Connect Ack" },
     { 0x00, NULL }
 };
 
@@ -1117,6 +1122,7 @@ const value_string tls_hello_extension_types[] = {
     /* http://tools.ietf.org/html/draft-balfanz-tls-channelid-01
        https://code.google.com/p/chromium/codesearch#chromium/src/net/third_party/nss/ssl/sslt.h&l=209 */
     { SSL_HND_HELLO_EXT_CHANNEL_ID, "channel_id" },
+    { 42, "multipath_dtls" },
     { 0, NULL }
 };
 
