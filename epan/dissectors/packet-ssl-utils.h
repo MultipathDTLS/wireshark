@@ -75,7 +75,12 @@ typedef enum {
     SSL_ID_ALERT                   = 0x15,
     SSL_ID_HANDSHAKE               = 0x16,
     SSL_ID_APP_DATA                = 0x17,
-    SSL_ID_HEARTBEAT               = 0x18
+    SSL_ID_HEARTBEAT               = 0x18,
+    SSL_ID_CHG_INTERFACE           = 0x2A,
+    SSL_ID_FEEDBACK                = 0x2B,
+    SSL_ID_FEEDBACKACK             = 0x2C,
+    SSL_ID_WANTCONNECT             = 0x2D,
+    SSL_ID_WANTCONNECTACK          = 0x2E
 } ContentType;
 
 typedef enum {
@@ -172,6 +177,7 @@ typedef enum {
 #define SSL_HND_HELLO_EXT_PADDING            0x0015
 #define SSL_HND_HELLO_EXT_EXTENDED_MASTER_SECRET_TYPE 0x0017
 #define SSL_HND_HELLO_EXT_SESSION_TICKET     0x0023
+#define SSL_HND_HELLO_EXT_MPDTLS             0x002a
 #define SSL_HND_HELLO_EXT_RENEG_INFO         0xff01
 #define SSL_HND_HELLO_EXT_NPN                0x3374
 #define SSL_HND_HELLO_EXT_CHANNEL_ID_OLD     0x754f
