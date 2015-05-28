@@ -905,18 +905,12 @@ dissect_dtls_record(tvbuff_t *tvb, packet_info *pinfo,
                           record_length, content_type, ssl, TRUE);
 
     col_append_str(pinfo->cinfo, COL_INFO, "Change Interface");
-
-    /* we need dissector information when the selected packet is shown.
-     * ssl session pointer is NULL at that time, so we can't access
-     * info cached there*/
-    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
-    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
-
+    
     proto_item_set_text(dtls_record_tree,
                         "%s Record Layer: %s Protocol: %s",
                         val_to_str_const(session->version, ssl_version_short_names, "SSL"),
                         val_to_str_const(content_type, ssl_31_content_type, "Change Interface"),
-                        association?association->info:"Change Interface");
+                        "Change Interface");
 
     /* show decrypted data info, if available */
     appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
@@ -982,17 +976,11 @@ dissect_dtls_record(tvbuff_t *tvb, packet_info *pinfo,
 
     col_append_str(pinfo->cinfo, COL_INFO, "Want Connect");
 
-    /* we need dissector information when the selected packet is shown.
-     * ssl session pointer is NULL at that time, so we can't access
-     * info cached there*/
-    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
-    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
-
     proto_item_set_text(dtls_record_tree,
                         "%s Record Layer: %s Protocol: %s",
                         val_to_str_const(session->version, ssl_version_short_names, "SSL"),
                         val_to_str_const(content_type, ssl_31_content_type, "Want Connect"),
-                        association?association->info:"Want Connect");
+                        "Want Connect");
 
     /* show decrypted data info, if available */
     appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
@@ -1035,18 +1023,12 @@ dissect_dtls_record(tvbuff_t *tvb, packet_info *pinfo,
                           record_length, content_type, ssl, TRUE);
 
     col_append_str(pinfo->cinfo, COL_INFO, "Want Connect Ack");
-
-    /* we need dissector information when the selected packet is shown.
-     * ssl session pointer is NULL at that time, so we can't access
-     * info cached there*/
-    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
-    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
-
+    
     proto_item_set_text(dtls_record_tree,
                         "%s Record Layer: %s Protocol: %s",
                         val_to_str_const(session->version, ssl_version_short_names, "SSL"),
                         val_to_str_const(content_type, ssl_31_content_type, "Want Connect Ack"),
-                        association?association->info:"Want Connect Ack");
+                        "Want Connect Ack");
 
     /* show decrypted data info, if available */
     appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
@@ -1088,18 +1070,12 @@ dissect_dtls_record(tvbuff_t *tvb, packet_info *pinfo,
                           record_length, content_type, ssl, TRUE);
 
     col_append_str(pinfo->cinfo, COL_INFO, "Feedback");
-
-    /* we need dissector information when the selected packet is shown.
-     * ssl session pointer is NULL at that time, so we can't access
-     * info cached there*/
-    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
-    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
-
+    
     proto_item_set_text(dtls_record_tree,
                         "%s Record Layer: %s Protocol: %s",
                         val_to_str_const(session->version, ssl_version_short_names, "SSL"),
                         val_to_str_const(content_type, ssl_31_content_type, "Feedback"),
-                        association?association->info:"Feedback");
+                        "Feedback");
 
     /* show decrypted data info, if available */
     appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
@@ -1149,18 +1125,12 @@ dissect_dtls_record(tvbuff_t *tvb, packet_info *pinfo,
                           record_length, content_type, ssl, TRUE);
 
     col_append_str(pinfo->cinfo, COL_INFO, "Feedback Ack");
-
-    /* we need dissector information when the selected packet is shown.
-     * ssl session pointer is NULL at that time, so we can't access
-     * info cached there*/
-    association = ssl_association_find(dtls_associations, pinfo->srcport, pinfo->ptype == PT_TCP);
-    association = association ? association : ssl_association_find(dtls_associations, pinfo->destport, pinfo->ptype == PT_TCP);
-
+    
     proto_item_set_text(dtls_record_tree,
                         "%s Record Layer: %s Protocol: %s",
                         val_to_str_const(session->version, ssl_version_short_names, "SSL"),
                         val_to_str_const(content_type, ssl_31_content_type, "Feedback Ack"),
-                        association?association->info:"Feedback Ack");
+                        "Feedback Ack");
 
     /* show decrypted data info, if available */
     appl_data = ssl_get_data_info(proto_dtls, pinfo, tvb_raw_offset(tvb)+offset);
